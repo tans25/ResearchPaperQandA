@@ -59,6 +59,11 @@ st.markdown("""
             [data-testid="stToolbar"],
             [data-testid="stDecoration"] { display: none !important; }
 
+            [data-testid="stMainBlockContainer"],
+            .block-container {
+                padding-top: 1.5rem !important;
+            }
+
             .main-wrap {
                 max-width: 100%;
                 margin: 0 auto;
@@ -235,6 +240,44 @@ st.markdown("""
                 opacity: 0.6 !important;
             }
 
+            /* Loader */
+            .loading-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(30, 27, 75, 0.85);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                z-index: 9999;
+            }
+
+            .loading-spinner {
+                width: 48px;
+                height: 48px;
+                border: 4px solid rgba(255, 255, 255, 0.2);
+                border-top: 4px solid #A78BFA;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin-bottom: 24px;
+            }
+
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+
+            .loading-text {
+                color: white;
+                font-size: 18px;
+                font-weight: 500;
+                font-family: 'Noto Sans', sans-serif;
+            }
+ 
+
+
             /* Make col2 itself the white box */
             .st-key-main_content [data-testid="stColumn"]:nth-child(2) > [data-testid="stVerticalBlock"] {
                 background-color: white;
@@ -269,9 +312,9 @@ def save_uploaded_files(uploaded_files):
     return save_dir
 
 def delete_papers(filename):
-    filepath = os.path.join("./data/papers", filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
+    # filepath = os.path.join("./data/papers", filename)
+    # if os.path.exists(filepath):
+    #     os.remove(filepath)
     graph.query(
         "MATCH (n {source_file: $filename}) DETACH DELETE n",
         {"filename": filename},
@@ -311,14 +354,20 @@ with st.container(key="upload_row"):
         # st.markdown("<br>", unsafe_allow_html=True)
         if new_files:
             if st.button("▷  Ingest", type="primary", use_container_width=True, key="ingest_btn"):
-                with st.spinner("Ingesting papers..."):
-                    new_uploaded = [f for f in st.session_state.uploaded_files if f.name in new_files]
-                    saved_paths = save_uploaded_files(new_uploaded)
-                    ingestion = ingest(saved_paths)
-                    if ingestion:
-                        st.session_state.pipeline_ready = True
-                        st.session_state.ingested_files = ingested_files | new_files
-                        st.rerun()
+                overlay = st.empty()
+                overlay.markdown("""
+                <div class="loading-overlay">
+                    <div class="loading-spinner"></div>
+                    <div class="loading-text">Ingesting papers...</div>
+                </div>
+                """, unsafe_allow_html=True)
+                new_uploaded = [f for f in st.session_state.uploaded_files if f.name in new_files]
+                # saved_paths = save_uploaded_files(new_uploaded)
+                ingestion = ingest(new_uploaded)
+                if ingestion:
+                    st.session_state.pipeline_ready = True
+                    st.session_state.ingested_files = ingested_files | new_files
+                    st.rerun()
         else:
             st.button("▷  Ingest", type="primary", disabled=True, use_container_width=True, key="ingest_btn")
 
@@ -332,14 +381,24 @@ with st.container(key="main_content"):
     with col1:
         file_list_content = '<div class="file-list"><h3 class="section-title">📁 Uploaded Files</h3>'
         
-        papers_dir = "./data/papers"
-        saved_files = os.listdir(papers_dir) if os.path.exists(papers_dir) else []
-        pdf_files = [f for f in saved_files if f.endswith(".pdf")]
+        # papers_dir = "./data/papers"
+        # saved_files = os.listdir(papers_dir) if os.path.exists(papers_dir) else []
+        # pdf_files = [f for f in saved_files if f.endswith(".pdf")]
+        ingested = st.session_state.get('ingested_files', set())
+        current_uploaded = st.session_state.get('uploaded_files', [])
+        display_files = {}
         
-        if pdf_files:
-            for filename in pdf_files:
-                file_size = os.path.getsize(os.path.join(papers_dir, filename)) / (1024 * 1024)  # Convert to MB
-                file_list_content += f"""<div class="file-item"><span class="file-icon">📄</span><div class="file-name">{filename}</div><div class="file-size">{file_size:.1f} MB</div></div>"""
+        
+        for filename in ingested:
+            display_files[filename] = "ingested"
+        for file in current_uploaded:
+            if file.name not in ingested:
+                display_files[file.name] = "pending"
+        if display_files:
+            for name, status in display_files.items():
+                icon = "✅" if status == "ingested" else "⏳"
+                # file_size = os.path.getsize(os.path.join(papers_dir, filename)) / (1024 * 1024)  # Convert to MB
+                file_list_content += f"""<div class="file-item"><span class="file-icon">{icon}</span><div class="file-name">{name}</div></div>"""
         else:
             file_list_content += """
             <div style="text-align: center; color: #6B7280; padding: 40px 0;">
@@ -356,20 +415,6 @@ with st.container(key="main_content"):
 
     with col2:
         if st.session_state.uploaded_files:
-            # print(st.session_state.uploaded_files)
-            # current_files = set(f.name for f in st.session_state.uploaded_files)
-            # ingested_files = st.session_state.get("ingested_files", set())
-            # new_files = current_files - ingested_files
-
-            # if new_files:
-            #     with st.spinner("Ingesting papers..."):
-            #         new_uploaded = [f for f in st.session_state.uploaded_files if f.name in new_files]
-            #         pdf_dir = save_uploaded_files(new_uploaded)
-            #         print(pdf_dir)
-            #         ingestion = ingest(pdf_dir)
-            #         if ingestion:
-            #             st.session_state.pipeline_ready = True
-            #             st.session_state.ingested_files = ingested_files | new_files
             if st.session_state.get("pipeline_ready"):
                 if "agent" not in st.session_state:
                     st.session_state.agent = create_rag_agent(st.session_state.ingested_files)
