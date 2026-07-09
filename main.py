@@ -8,10 +8,9 @@ from ingestion.vector_store import build_vector_store
 from agent import create_rag_agent
 
 
-def ingest(pdf_dir):
+def ingest(uploaded_files):
     try:
-        print("here", pdf_dir)
-        splits = load_pdfs(pdf_dir)
+        splits = load_pdfs(uploaded_files)
         build_graph(splits)
         build_vector_store(splits)
         print("Ingestion complete")
