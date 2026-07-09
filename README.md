@@ -11,7 +11,7 @@ A Graph RAG application for analyzing research papers. Upload PDFs, automaticall
  
 The application has two phases:
  
-**Ingestion** — uploaded PDFs are loaded, references and appendix sections are stripped, and the remaining content is split into chunks. Each chunk is processed in parallel through two pipelines: an LLM extracts entities (papers, authors, methods, datasets, tasks, metrics) and relationships into a Neo4j knowledge graph, while embeddings are stored in a Chroma vector database.
+**Ingestion** — uploaded PDFs are loaded, references and appendix sections are stripped, and the remaining content is split into chunks. Each chunk is processed in parallel through two pipelines: an LLM extracts entities (papers, authors, methods, datasets, tasks, metrics) and relationships into a Neo4j knowledge graph, while embeddings are stored in the Neo4j vector database.
  
 **Querying** — an agent powered by Mistral decides which retrieval tool to use per question. Relational questions ("which methods were evaluated on dataset X across all papers?") route to the knowledge graph via Cypher queries. Detail questions ("how does the paper define contrastive loss?") route to vector search over the raw text. The agent can use both tools for complex questions that need structural and textual context.
  
@@ -26,14 +26,14 @@ graph_rag/
 ├── ingestion/
 │   ├── __init__.py
 │   ├── loader.py           # PDF loading, back matter removal, chunking
-│   ├── graph_builder.py    # Entity/relationship extraction → Neo4j
-│   └── vector_store.py     # Chunk embeddings → Chroma
+│   ├── graph_builder.py    # Entity/relationship extraction → Neo4j AuraDB
+│   └── vector_store.py     # Chunk embeddings → Neo4j
 ├── tools/
 │   ├── __init__.py
 │   ├── graph_tool.py       # Knowledge graph query tool
 │   └── retriever_tool.py   # Vector search tool
-├── docker-compose.yml      # Neo4j container
-├── .env                    # API keys (not committed)
+├── .streamlit/             # Streamlit secrets folder (not committed)
+    └── secrets.toml                    # Neo4j credentials and LLM API keys (not committed)
 ├── requirements.txt
 └── data/
     └── papers/             # Uploaded PDFs (not committed)
@@ -45,8 +45,8 @@ graph_rag/
 |---|---|
 | LLM | Mistral (via Mistral API) |
 | Embeddings | all-MiniLM-L6-v2 (HuggingFace, local) |
-| Knowledge Graph | Neo4j |
-| Vector Store | Chroma |
+| Knowledge Graph | Neo4j AuraDB |
+| Vector Store | Neo4j |
 | Orchestration | LangChain + LangGraph |
 | Frontend | Streamlit |
 | Containerization | Docker |
@@ -54,46 +54,51 @@ graph_rag/
 ## Setup
  
 ### Prerequisites
- 
+
 - Python 3.10+
-- Docker and Docker Compose
+- Neo4j Aura account ([console.neo4j.io](https://console.neo4j.io))
 - Mistral API key
+
 ### 1. Clone the repository
- 
+
 ```bash
-git clone https://github.com/yourusername/research-comp.git
+git clone https://github.com/yourusername/ResearchPaperQandA.git
 cd research-comp
 ```
- 
+
 ### 2. Create a virtual environment
- 
+
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
- 
+
 ### 3. Install dependencies
- 
+
 ```bash
 pip install -r requirements.txt
 ```
- 
-### 4. Configure environment variables
- 
+
+### 4. Set up Neo4j Aura
+
+1. Go to [console.neo4j.io](https://console.neo4j.io) and create a free instance
+2. Save the connection URI, username, and password (the password is only shown once)
+
+### 5. Configure secrets
+
+Create `.streamlit/secrets.toml`:
+
+```toml
+NEO4J_URL = "neo4j+s://xxxxx.databases.neo4j.io"
+NEO4J_USER = "your-aura-username"
+NEO4J_PASSWORD = "your-aura-password"
+MISTRAL_API_KEY = "your-mistral-api-key"
+```
+
+### 6. Run the application
+
 ```bash
-cp .env.example .env
-```
- 
-Edit `.env` and add your API key:
- 
-```
-MISTRAL_API_KEY=your-mistral-api-key
-```
- 
-### 5. Start Neo4j
- 
-```bash
-docker compose up -d
+streamlit run app.py
 ```
  
 This starts a Neo4j instance with APOC plugin enabled. The browser UI is available at `http://localhost:7474`.
@@ -128,7 +133,7 @@ streamlit run app.py
 The ingestion pipeline forks each chunk into two parallel paths:
  
 - **Graph path** — an LLM extracts structured entities and relationships using a predefined schema, which are loaded into Neo4j as nodes and edges. Shared entities across papers (e.g., the same method appearing in multiple papers) naturally merge into single nodes, enabling cross-paper queries.
-- **Vector path** — chunks are embedded with all-MiniLM-L6-v2 and stored in Chroma for semantic similarity search.
+- **Vector path** — chunks are embedded with all-MiniLM-L6-v2 and stored in Neo4j Vector Database for semantic similarity search.
 At query time, the agent has access to both retrieval tools and autonomously decides which to invoke based on the question type. The `GraphCypherQAChain` converts natural language to Cypher queries for graph traversal, while the vector retriever returns semantically similar chunks for detail-oriented questions.
  
 ## Knowledge Graph Schema
@@ -136,28 +141,6 @@ At query time, the agent has access to both retrieval tools and autonomously dec
 **Entity types:** Paper, Author, Method, Dataset, Task, Metric
  
 **Relationship types:** AUTHORED_BY, USES_METHOD, EVALUATED_ON, ACHIEVES_RESULT, CITES, EXTENDS
- 
-## Useful Commands
- 
-```bash
-# Start Neo4j
-docker compose up -d
- 
-# Stop Neo4j (data persists)
-docker compose down
- 
-# Stop Neo4j and delete all data
-docker compose down -v
- 
-# Clear Neo4j graph
-docker exec graph_rag_neo4j cypher-shell -u neo4j -p your_password "MATCH (n) DETACH DELETE n"
- 
-# Clear Chroma vector store
-rm -rf ./chroma_db
- 
-# View Neo4j browser
-open http://localhost:7474
-```
  
 ## Configuration
  
@@ -167,7 +150,7 @@ Key parameters can be adjusted in the respective files:
 - **LLM model** — `config.py` (default: mistral-small-latest)
 - **Embedding model** — `config.py` (default: all-MiniLM-L6-v2)
 - **Extraction schema** — `ingestion/graph_builder.py` (entity and relationship types)
-- **Neo4j credentials** — `docker-compose.yml` and `config.py`
+- **Neo4j credentials** — `secrets.toml` and `config.py`
 ## Known Limitations
  
 - Entity deduplication is name-based — "GPT-4" and "GPT4" create separate nodes
