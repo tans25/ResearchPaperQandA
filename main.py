@@ -14,10 +14,10 @@ def ingest(uploaded_files):
         build_graph(splits)
         build_vector_store(splits)
         print("Ingestion complete")
-        return True
+        return {"success": True, "message": "Ingestion complete"}
     except Exception as e:
         print(f"Something went wrong: {e}")
-        return False 
+        return {"success": False, "message": str(e)}
 
 
 def query():
